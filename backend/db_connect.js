@@ -1,94 +1,66 @@
-import {Pool} from "pg";
+import 'dotenv/config';
+import { createClient } from '@supabase/supabase-js';
 
-// Initialize the PostgreSQL connection pool. 
-// It is best practice to manage credentials via environment variables.
-const pool = new Pool({
-  user: process.env.DB_USER || 'postgres',
-  host: process.env.DB_HOST || 'localhost',
-  database: process.env.DB_NAME || 'Cyclone',
-  password: process.env.DB_PASSWORD || 'user123',
-  port: process.env.DB_PORT || 5432,
-});
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
-/**
- * Executes the unified SQL query to retrieve current cyclone details 
- * along with a nested array of past tracking data.
- * 
- * @returns {Promise<Array>} The formatted array of cyclone data objects.
- */
+export default supabase;
+
 export async function fetchUnifiedCycloneData() {
-  const query = `
-    WITH LatestTracking AS (
-        SELECT DISTINCT ON (cyclone_id)
-            cyclone_id,
-            latitude AS current_lat,
-            longitude AS current_lon,
-            recorded_at AS last_updated_at
-        FROM cyclone_tracking
-        ORDER BY cyclone_id, recorded_at DESC
-    ),
-    FirstDetection AS (
-        SELECT 
-            cyclone_id, 
-            MIN(recorded_at) AS first_detected_at
-        FROM cyclone_tracking
-        GROUP BY cyclone_id
-    ),
-    PastDataAggregation AS (
-        SELECT
-            ct.cyclone_id,
-            json_agg(
-                json_build_object(
-                    'timestamp', ct.recorded_at,
-                    'lat', ct.latitude,
-                    'lon', ct.longitude,
-                    'region', c.region, 
-                    'destructive_scale', ct.destructive_scale, 
-                    'status', ct.status,                       
-                    'pressure', ct.central_pressure,           
-                    'wind_speed', ct.wind_speed
-                ) ORDER BY ct.recorded_at ASC
-            ) AS "pastData"
-        FROM cyclone_tracking ct
-        JOIN cyclones c ON ct.cyclone_id = c.id
-        WHERE ct.record_type = 'past'
-        GROUP BY ct.cyclone_id
-    )
-    SELECT 
-        c.classification, 
-        lt.current_lat,
-        lt.current_lon,
-        c.name AS cyclone_name,
-        c.destructive_scale,
-        fd.first_detected_at,
-        c.id,
-        lt.last_updated_at,
-        c.central_pressure AS pressure,
-        'hPa' AS pressure_unit,
-        c.region,
-        c.status,
-        NULL AS surge_estimate,
-        'm' AS surge_unit,
-        c.wind_speed,
-        'km/h' AS wind_speed_unit,
-        pda."pastData" 
-    FROM cyclones c
-    LEFT JOIN LatestTracking lt ON c.id = lt.cyclone_id
-    LEFT JOIN FirstDetection fd ON c.id = fd.cyclone_id
-    LEFT JOIN PastDataAggregation pda ON c.id = pda.cyclone_id;
-  `;
+  const { data: cyclones, error: cyclonesError } = await supabase
+    .from('cyclones')
+    .select('*');
 
-  try {
-    // Execute the query using the connection pool
-    const { rows } = await pool.query(query);
-    return rows;
-  } catch (error) {
-    console.error('Error executing unified cyclone query:', error);
-    throw error;
-  }
+  if (cyclonesError) throw cyclonesError;
+
+  const { data: tracking, error: trackingError } = await supabase
+    .from('cyclone_tracking')
+    .select('*')
+    .order('recorded_at', { ascending: true });
+
+  if (trackingError) throw trackingError;
+
+  return cyclones.map(c => {
+    const cycloneTracking = tracking.filter(t => t.cyclone_id === c.id);
+    const latest = cycloneTracking[cycloneTracking.length - 1] || null;
+    const first = cycloneTracking[0] || null;
+
+    const pastData = cycloneTracking
+      .filter(t => t.record_type === 'past')
+      .map(t => ({
+        timestamp: t.recorded_at,
+        lat: t.latitude,
+        lon: t.longitude,
+        region: c.region,
+        destructive_scale: t.destructive_scale,
+        status: t.status,
+        pressure: t.central_pressure,
+        wind_speed: t.wind_speed,
+        image_url: t.image_url || null,
+      }));
+
+    return {
+      id: c.id,
+      cyclone_name: c.name,
+      classification: c.classification,
+      current_lat: latest?.latitude ?? null,
+      current_lon: latest?.longitude ?? null,
+      destructive_scale: c.destructive_scale,
+      first_detected_at: first?.recorded_at ?? null,
+      last_updated_at: latest?.recorded_at ?? null,
+      pressure: c.central_pressure,
+      pressure_unit: 'hPa',
+      region: c.region,
+      status: c.status,
+      is_alert: c.is_alert || false,
+      surge_estimate: null,
+      surge_unit: 'm',
+      wind_speed: c.wind_speed,
+      wind_speed_unit: 'km/h',
+      latest_image_url: latest?.image_url || null,
+      pastData,
+    };
+  });
 }
-
-/* const data = await fetchUnifiedCycloneData();
-console.log(data); */
-
-// Export the function so it can be called by your API routes or controllers

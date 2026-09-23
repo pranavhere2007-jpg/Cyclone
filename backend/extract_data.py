@@ -8,7 +8,7 @@ import sys
 import json
 import requests
 import tempfile
-
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 def extract_timestamp(image_path):
     # 1. Load the image
     img = cv2.imread(image_path)

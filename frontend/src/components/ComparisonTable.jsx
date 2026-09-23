@@ -1,8 +1,10 @@
-import React from 'react';
-
 export default function ComparisonTable({ currentCyclone }) {
-  // Use the pastData array from the new database structure
-  const logData = currentCyclone?.pastdata || currentCyclone?.pastData || [];
+  // Accommodate key variations returned by Supabase/Express
+  const logData = 
+    currentCyclone?.pastdata || 
+    currentCyclone?.pastData || 
+    currentCyclone?.past_data || 
+    [];
 
   return (
     <div className="card" style={{ marginTop: '2.5rem' }}>
@@ -31,25 +33,31 @@ export default function ComparisonTable({ currentCyclone }) {
                 </td>
               </tr>
             ) : (
-              /* Create a shallow copy and reverse it to show the most recent logs at the top */
               [...logData].reverse().map((entry, index) => {
-                const timeString = entry.timestamp 
-                  ? new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) 
-                  : '--:--:--';
+                // Safe date formatting
+                let timeString = '--:--:--';
+                if (entry?.timestamp) {
+                  const date = new Date(entry.timestamp);
+                  if (!isNaN(date.getTime())) {
+                    timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                  } else {
+                    timeString = String(entry.timestamp);
+                  }
+                }
 
-                // Safety checks for coordinate parsing
-                const lat = entry.lat !== null && entry.lat !== undefined ? parseFloat(entry.lat).toFixed(2) : '--';
-                const lon = entry.lon !== null && entry.lon !== undefined ? parseFloat(entry.lon).toFixed(2) : '--';
+                // Safe coordinate checks
+                const lat = entry?.lat !== null && entry?.lat !== undefined ? parseFloat(entry.lat).toFixed(2) : '--';
+                const lon = entry?.lon !== null && entry?.lon !== undefined ? parseFloat(entry.lon).toFixed(2) : '--';
 
                 return (
-                  <tr key={index} className={index === 0 ? "current-row" : ""}>
+                  <tr key={entry?.id || index} className={index === 0 ? "current-row" : ""}>
                     <td style={{ fontWeight: 600 }}>{timeString}</td>
                     <td>{lat}°, {lon}°</td>
-                    <td style={{ textTransform: 'capitalize' }}>{entry.status || 'N/A'}</td>
+                    <td style={{ textTransform: 'capitalize' }}>{entry?.status || 'N/A'}</td>
                     <td className={index === 0 ? "danger-text" : ""}>
-                      {entry.wind_speed || 'N/A'}
+                      {entry?.wind_speed || entry?.wind || 'N/A'}
                     </td>
-                    <td>{entry.pressure || 'N/A'}</td>
+                    <td>{entry?.pressure || 'N/A'}</td>
                     <td>
                       <span style={{
                         fontSize: '0.75rem',
@@ -60,7 +68,7 @@ export default function ComparisonTable({ currentCyclone }) {
                         fontWeight: 'bold',
                         textTransform: 'uppercase'
                       }}>
-                        Cat {entry.destructive_scale || '0'}
+                        {entry?.destructive_scale ? `Cat ${entry.destructive_scale}` : 'CAT 1'}
                       </span>
                     </td>
                   </tr>

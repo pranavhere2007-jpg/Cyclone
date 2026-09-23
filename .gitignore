@@ -1,0 +1,26 @@
+# Environment & Secrets (Root, Backend, Simulator)
+.env
+.env.*
+*.env
+
+# Python Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Python Cache & Compiled Files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Node Dependencies & Build Output
+node_modules/
+dist/
+build/
+.vite/
+
+# System Files
+.DS_Store
+Thumbs.db

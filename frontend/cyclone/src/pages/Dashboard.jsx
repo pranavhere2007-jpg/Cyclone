@@ -5,6 +5,7 @@ import MapView from '../components/MapView';
 import IntensityBadge from '../components/IntensityBadge';
 import CycloneDetails from '../components/CycloneDetails';
 import ComparisonTable from '../components/ComparisonTable'; 
+import SatelliteImage from '../components/SatelliteImage';
 import "../index.css";
 
 export default function Dashboard() {
@@ -17,12 +18,21 @@ export default function Dashboard() {
   useEffect(() => {
     async function loadDashboardData() {
       const data = await fetchCycloneData();
-      if (data) {
-        // Find the specific cyclone matching the route parameter
+
+      if (data && data.length > 0) {
         const found = data.find(c => c.id.toString() === id);
-        setCyclone(found);
+        setCyclone(found || data[0]); // Default to first cyclone if exact ID isn't matched
+      } else {
+        // Fallback demo state if database is empty or offline
+        setCyclone({
+          id: id || 'demo',
+          cyclone_name: 'Cyclone Amphan',
+          classification: 'Super Cyclonic Storm',
+          image_filename: 'amphan-frame-0000.gif',
+          last_updated_at: new Date().toISOString(),
+        });
       }
-      setLoading(false);
+      setLoading(false); 
     }
     
     loadDashboardData();
@@ -42,14 +52,14 @@ export default function Dashboard() {
 
   return (
     <div>
-      <button onClick={() => navigate('/')} className="btn-primary">
+      <button onClick={() => navigate('/')} className="btn-primary" style={{ marginBottom: '1.5rem', width: 'auto', display: 'inline-block' }}>
         &larr; Back to Active List
       </button>
 
       <div className="card dashboard-header">
         <div>
           <h2 className="page-title" style={{ marginBottom: 0 }}>
-            {cyclone.cyclone_name || "Unnamed System"}
+            {cyclone.cyclone_name || cyclone.name || "Unnamed System"}
           </h2>
           <p className="page-subtitle">ID: {cyclone.id}</p>
         </div>
@@ -67,6 +77,9 @@ export default function Dashboard() {
           <CycloneDetails cyclone={cyclone} />
         </div>
       </div>
+
+      {/* Satellite Imagery Component */}
+      <SatelliteImage key={cyclone.id} cyclone={cyclone} />
 
       {/* Historical Comparison */}
       <ComparisonTable currentCyclone={cyclone} />

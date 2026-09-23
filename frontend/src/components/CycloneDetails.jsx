@@ -1,7 +1,16 @@
-import React from 'react';
-
 export default function CycloneDetails({ cyclone }) {
-  return (
+  // Guard against null/undefined cyclone during data fetch
+  if (!cyclone) return null;
+
+  // Derive storm surge directly without useEffect or extra state
+  let surgeValue = '--';
+  if (cyclone.surge_estimate) {
+    surgeValue = `${cyclone.surge_estimate} ${cyclone.surge_unit || 'm'}`;
+  } else if (cyclone.wind_speed || cyclone.max_sustained_wind) {
+    const speed = parseFloat(cyclone.wind_speed || cyclone.max_sustained_wind);
+    surgeValue = `${(speed * 0.05).toFixed(1)} m`;
+  }
+return (
     <div className="card" style={{ height: '100%' }}>
       <h3 className="card-title" style={{ paddingBottom: '0.75rem', borderBottom: '1px solid rgba(0,0,0,0.05)', marginBottom: '1rem' }}>
         Current Telemetry
@@ -30,11 +39,15 @@ export default function CycloneDetails({ cyclone }) {
         </div>
         
         <div className="telemetry-row">
-          <span className="telemetry-label">Est. Storm Surge</span>
-          <span className="telemetry-value" style={{ color: 'var(--primary)' }}>
-             {cyclone.surge_estimate || '--'} {cyclone.surge_unit}
-          </span>
-        </div>
+  <span className="telemetry-label">Est. Storm Surge</span>
+  <span className="telemetry-value" style={{ color: 'var(--primary)' }}>
+    {cyclone.surge_estimate 
+      ? `${cyclone.surge_estimate} ${cyclone.surge_unit || 'm'}` 
+      : cyclone.wind_speed 
+        ? `${(parseFloat(cyclone.wind_speed) * 0.05).toFixed(1)} m` 
+        : '--'}
+  </span>
+</div>
 
         <div className="telemetry-row">
           <span className="telemetry-label">Current Status</span>
