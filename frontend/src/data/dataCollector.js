@@ -24,7 +24,11 @@ export function getSatelliteImageUrl(imageReference) {
     const filename = cleanRef.split('/').filter(Boolean).pop();
     if (!filename) return null;
 
-    // 4. Target the /uploads endpoint where Multer saves disk files
+    // 4. Route frame_* images to /images/ and user uploads to /uploads/
+    if (/^frame_/i.test(filename)) {
+        return `${BACKEND_URL}/images/${filename}`;
+    }
+
     return `${BACKEND_URL}/uploads/${filename}`;
 }
 

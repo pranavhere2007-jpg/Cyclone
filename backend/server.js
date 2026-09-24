@@ -13,20 +13,28 @@ import { fetchUnifiedCycloneData } from './db_connect.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const execAsync = promisify(exec);
-
 const app = express();
 const PORT = process.env.PORT || 3000;
-
+app.use(cors());
 app.use(express.json());
 
-const staticImageDir = fs.existsSync(simulatorImagesDir) ? simulatorImagesDir : fallbackDir;
+// 1. Define folder paths FIRST
+const simulatorImagesDir = path.resolve(__dirname, '..', 'simulator', 'images');
+const uploadsDir = path.join(__dirname, 'uploads');
+console.log("-----------------------------------------");
+console.log("Checking path:", simulatorImagesDir);
+console.log("Folder exists?", fs.existsSync(simulatorImagesDir));
+if (fs.existsSync(simulatorImagesDir)) {
+  console.log("Folder contents:", fs.readdirSync(simulatorImagesDir));
+}
+console.log("-----------------------------------------");
+// 2. Ensure both folders exist on disk
+if (!fs.existsSync(simulatorImagesDir)) fs.mkdirSync(simulatorImagesDir, { recursive: true });
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-console.log(`Serving satellite frames from: ${staticImageDir}`);
-
-// Serve static satellite image frames under /uploads and /images endpoints
-app.use('/uploads', express.static(staticImageDir));
-app.use('/images', express.static(staticImageDir));
-
+// 3. Expose static image endpoints
+app.use('/images', express.static(simulatorImagesDir)); 
+app.use('/uploads', express.static(uploadsDir));
 // Configure Multer storage for uploaded satellite frames
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -238,37 +246,32 @@ app.post('/api/predict', async (req, res) => {
  * 7. GET /api/latest-satellite-frame
  * Scans simulator/images directory for frame_*.png files and returns the latest image frame.
  */
-app.get('/api/latest-satellite-frame', (req, res) => {
-    fs.readdir(staticImageDir, (err, files) => {
+app.get('/api/all-satellite-frames', (req, res) => {
+    fs.readdir(simulatorImagesDir, (err, files) => {
         if (err || !files || files.length === 0) {
-            return res.status(404).json({ error: 'No frame images found in directory' });
+            return res.status(404).json({ error: 'No frame images found in simulator directory.' });
         }
 
-        // Filter for frame_0000.png, frame_0001.png, etc.
-        const frameFiles = files.filter(f => /^frame_.*\.(png|jpg|jpeg)$/i.test(f));
+        // Filter for frame_*.gif, .png, .jpg, .jpeg files
+        const frameFiles = files
+            .filter(f => /^frame_.*\.(gif|png|jpg|jpeg)$/i.test(f))
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
         if (frameFiles.length === 0) {
-            const fallbackFiles = files.filter(f => /\.(png|jpg|jpeg)$/i.test(f));
-            if (fallbackFiles.length === 0) {
-                return res.status(404).json({ error: 'No satellite images found.' });
-            }
-            return res.json({ image_url: `http://localhost:${PORT}/uploads/${fallbackFiles[0]}` });
+            return res.status(404).json({ error: 'No frame files matching pattern found.' });
         }
 
-        // Sort frames numerically
-        frameFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+        const frames = frameFiles.map(file => ({
+            filename: file,
+            image_url: `http://localhost:${PORT}/images/${file}`
+        }));
 
-        // Return latest frame filename and public access URL
-        const latestFrame = frameFiles[frameFiles.length - 1];
-
-        res.json({ 
-            filename: latestFrame,
-            image_url: `http://localhost:${PORT}/uploads/${latestFrame}` 
-        });
+        res.json(frames);
     });
 });
 
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Static image path: ${staticImageDir}`);
+    console.log(`Simulator frames path: ${simulatorImagesDir}`);
+    console.log(`Uploads path: ${uploadsDir}`);
 });

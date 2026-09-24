@@ -12,12 +12,12 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [cyclone, setCyclone] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('telemetry'); // 'telemetry' or 'satellite'
 
   useEffect(() => {
     async function loadData() {
       const data = await fetchCycloneData();
       if (data && data.length > 0) {
-        // Find matching cyclone or default to the first record
         const selected = data.find((c) => String(c.id) === String(id)) || data[0];
         setCyclone(selected);
       }
@@ -26,16 +26,11 @@ export default function Dashboard() {
     loadData();
   }, [id]);
 
-  if (loading) {
-    return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading dashboard telemetry...</div>;
-  }
-
-  if (!cyclone) {
-    return <div style={{ padding: '2rem', textAlign: 'center' }}>No cyclone telemetry available.</div>;
-  }
+  if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading dashboard telemetry...</div>;
+  if (!cyclone) return <div style={{ padding: '2rem', textAlign: 'center' }}>No cyclone telemetry available.</div>;
 
   return (
-    <div>
+    <div style={{ paddingBottom: '2rem' }}>
       <button 
         onClick={() => navigate('/')} 
         className="btn-primary" 
@@ -44,7 +39,8 @@ export default function Dashboard() {
         &larr; Back to Active List
       </button>
 
-      <div className="card dashboard-header">
+      {/* Dashboard Header */}
+      <div className="card dashboard-header" style={{ marginBottom: '1rem' }}>
         <div>
           <h2 className="page-title" style={{ marginBottom: 0 }}>
             {cyclone.cyclone_name || cyclone.name || "Unnamed System"}
@@ -54,23 +50,66 @@ export default function Dashboard() {
         <IntensityBadge classification={cyclone.classification} />
       </div>
 
-      <div className="dashboard-grid">
-        {/* Left Column: Interactive Tracking Map */}
-        <div className="map-column">
-          <MapView cyclone={cyclone} />
-        </div>
-
-        {/* Right Column: Telemetry Summary */}
-        <div>
-          <CycloneDetails cyclone={cyclone} />
-        </div>
+      {/* Navigation Tabs */}
+      <div style={{ 
+        display: 'flex', 
+        gap: '1rem', 
+        borderBottom: '2px solid #e2e8f0', 
+        marginBottom: '1.5rem' 
+      }}>
+        <button
+          onClick={() => setActiveTab('telemetry')}
+          style={{
+            padding: '0.75rem 1.25rem',
+            border: 'none',
+            background: 'none',
+            fontWeight: '600',
+            fontSize: '0.95rem',
+            cursor: 'pointer',
+            borderBottom: activeTab === 'telemetry' ? '3px solid #0284c7' : '3px solid transparent',
+            color: activeTab === 'telemetry' ? '#0284c7' : '#64748b',
+            transition: 'all 0.2s'
+          }}
+        >
+          Telemetry & Tracking
+        </button>
+        <button
+          onClick={() => setActiveTab('satellite')}
+          style={{
+            padding: '0.75rem 1.25rem',
+            border: 'none',
+            background: 'none',
+            fontWeight: '600',
+            fontSize: '0.95rem',
+            cursor: 'pointer',
+            borderBottom: activeTab === 'satellite' ? '3px solid #0284c7' : '3px solid transparent',
+            color: activeTab === 'satellite' ? '#0284c7' : '#64748b',
+            transition: 'all 0.2s'
+          }}
+        >
+          Satellite Loop
+        </button>
       </div>
 
-      {/* IR Satellite Image */}
-      <SatelliteImage key={cyclone.id} cyclone={cyclone} />
+      {/* Tab 1: Live Telemetry & Tracking Map */}
+      {activeTab === 'telemetry' && (
+        <>
+          <div className="dashboard-grid">
+            <div className="map-column">
+              <MapView cyclone={cyclone} />
+            </div>
+            <div>
+              <CycloneDetails cyclone={cyclone} />
+            </div>
+          </div>
+          <ComparisonTable currentCyclone={cyclone} />
+        </>
+      )}
 
-      {/* Single Historical Comparison Table */}
-      <ComparisonTable currentCyclone={cyclone} />
+      {/* Tab 2: Sized Satellite Loop Viewer */}
+      {activeTab === 'satellite' && (
+        <SatelliteImage key={cyclone.id} cyclone={cyclone} />
+      )}
     </div>
   );
 }
