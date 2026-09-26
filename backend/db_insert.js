@@ -53,7 +53,7 @@ export async function insertDataIntoDb(payload) {
 
   const { error: trackingError } = await supabase
     .from('cyclone_tracking')
-    .upsert(
+    .insert(
       {
         cyclone_id: cycloneId,
         recorded_at: payload.tracking.recorded_at,

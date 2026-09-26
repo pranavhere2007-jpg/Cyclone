@@ -76,7 +76,7 @@ app.post('/api/satellite/upload', upload.single('image'), async (req, res) => {
         const { stdout, stderr } = await execAsync(`node "${scriptPath}" "${absoluteImagePath}"`);
 
         if (stderr) console.error("Pipeline Warnings:", stderr);
-
+        
         res.status(200).json({ 
             message: 'Image processed and database updated successfully.',
             image_url: `http://localhost:${PORT}/uploads/${req.file.filename}`,
@@ -228,9 +228,16 @@ const modelUrl = process.env.MODEL_URL;
 
 app.post('/api/predict', async (req, res) => {
     try {
+        const modelUrl = process.env.MODEL_API_URL || 'http://localhost:5000/predict';
+        const apiKey = process.env.MODEL_API_KEY;
+
         const response = await fetch(modelUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.CYCLONE_API_KEY },
+            headers: { 
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,          // Custom header for API key
+                'Authorization': `Bearer ${apiKey}` // Common alternative header
+            },
             body: JSON.stringify(req.body)
         });
 
