@@ -1,117 +1,132 @@
 import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Polyline, Marker, Popup, CircleMarker } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+
+// Global cache to share the single prediction promise across React StrictMode remounts
+const predictionPromiseCache = new Map();
 
 export default function MapView({ cyclone }) {
   const defaultCenter = [15.0, 85.0];
   const [predictedPath, setPredictedPath] = useState([]);
+  const [predictionDetails, setPredictionDetails] = useState([]);
   const [isPredicting, setIsPredicting] = useState(false);
-  
+
   const hasData = Boolean(cyclone && cyclone.current_lat && cyclone.current_lon);
-  const mapCenter = hasData 
-    ? [parseFloat(cyclone.current_lat), parseFloat(cyclone.current_lon)] 
-    : defaultCenter;
-    
+  const mapCenter = hasData ? [parseFloat(cyclone.current_lat), parseFloat(cyclone.current_lon)] : defaultCenter;
   const name = cyclone?.cyclone_name || "Active Cyclone";
 
   const rawPastData = cyclone?.pastdata || cyclone?.pastData || [];
   const pastData = rawPastData.map(point => [parseFloat(point.lat), parseFloat(point.lon)]);
 
   useEffect(() => {
-    async function fetchPrediction() {
-      if (!rawPastData || rawPastData.length < 2) return;
+    if (!cyclone?.id || !rawPastData || rawPastData.length < 2) return;
 
-      // 1. Inline 6-Hour Interpolation (Geographic/Intensity Math)
-      const sorted = [...rawPastData].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-      const latestTime = new Date(sorted[sorted.length - 1].timestamp).getTime();
-      const sixHoursMs = 6 * 60 * 60 * 1000;
-      const resampled = [];
+    let isSubscribed = true;
+    
+    // Create a unique cache key based on the cyclone and the amount of data we currently have
+    const cacheKey = `${cyclone.id}-${rawPastData.length}`;
 
-      for (let i = 7; i >= 0; i--) { // Require exactly 8 points
-        const targetTime = latestTime - (i * sixHoursMs);
-        const exact = sorted.find(d => new Date(d.timestamp).getTime() === targetTime);
+    async function processAndFetchPrediction() {
+      // If no fetch is currently happening for this data, create one
+      if (!predictionPromiseCache.has(cacheKey)) {
         
-        if (exact) {
-          resampled.push(exact);
-          continue;
-        }
+        // 1. Sort historical data chronologically
+        const sorted = [...rawPastData].sort((a, b) => {
+          const timeA = new Date(a.timestamp || a.recorded_at).getTime();
+          const timeB = new Date(b.timestamp || b.recorded_at).getTime();
+          return (timeA || 0) - (timeB || 0);
+        });
 
-        const before = sorted.slice().reverse().find(d => new Date(d.timestamp).getTime() < targetTime);
-        const after = sorted.find(d => new Date(d.timestamp).getTime() > targetTime);
-
-        if (!before || !after) {
-          console.warn(`[Prediction] Waiting for more historical data to fulfill 42-hour span constraint.`);
-          return;
-        }
-
-        const t0 = new Date(before.timestamp).getTime();
-        const t1 = new Date(after.timestamp).getTime();
-        const ratio = (targetTime - t0) / (t1 - t0);
+        const N = sorted.length;
+        const resampled = [];
         const lerp = (v0, v1, t) => v0 + t * (v1 - v0);
 
-        resampled.push({
-          lat: lerp(parseFloat(before.lat), parseFloat(after.lat), ratio),
-          lon: lerp(parseFloat(before.lon), parseFloat(after.lon), ratio),
-          pressure: lerp(parseFloat(before.pressure || 1000), parseFloat(after.pressure || 1000), ratio),
-          wind_speed: lerp(parseFloat(before.wind_speed || 20), parseFloat(after.wind_speed || 20), ratio)
+        // 2. Interpolate exactly 8 points based on spatial sequence (Fixes mangled coordinates)
+        for (let i = 0; i < 8; i++) {
+          const indexTarget = (i / 7) * (N - 1);
+          const lower = Math.floor(indexTarget);
+          const upper = Math.ceil(indexTarget);
+          const ratio = indexTarget - lower;
+          
+          const pt1 = sorted[lower];
+          const pt2 = sorted[upper];
+
+          resampled.push({
+            lat: lerp(parseFloat(pt1.lat), parseFloat(pt2.lat), ratio),
+            lon: lerp(parseFloat(pt1.lon), parseFloat(pt2.lon), ratio),
+            pressure: lerp(parseFloat(pt1.pressure || 1000), parseFloat(pt2.pressure || 1000), ratio),
+            wind_speed: lerp(parseFloat(pt1.wind_speed || 20), parseFloat(pt2.wind_speed || 20), ratio)
+          });
+        }
+
+        // 3. Artificially generate recent timestamps (2026) to prevent GFS 500 download failures
+        const now = new Date();
+        const baseHour = Math.floor(now.getUTCHours() / 6) * 6;
+        const latestMockTimeMs = Date.UTC(2026, now.getUTCMonth(), now.getUTCDate(), baseHour);
+        const sixHoursMs = 6 * 60 * 60 * 1000;
+
+        const observations = resampled.map((p, index) => {
+          const offsetMultiplier = 7 - index; 
+          const mockTime = new Date(latestMockTimeMs - (offsetMultiplier * sixHoursMs));
+          
+          const yr = mockTime.getUTCFullYear();
+          const mo = String(mockTime.getUTCMonth() + 1).padStart(2, '0');
+          const da = String(mockTime.getUTCDate()).padStart(2, '0');
+          const hr = String(mockTime.getUTCHours()).padStart(2, '0');
+          
+          return {
+            timestamp: `${yr}${mo}${da}${hr}`,
+            longitude: p.lon,
+            latitude: p.lat,
+            pressure: p.pressure, 
+            wind: p.wind_speed      
+          };
         });
-      }
 
-      // 2. Artificial Chronological Timestamp Generation (Strictly within the last 9 days)
-      const now = new Date();
-      // Round down to the nearest model interval (0, 6, 12, or 18 hours)
-      const baseHour = Math.floor(now.getUTCHours() / 6) * 6;
-      // Force year to 2026, but keep month and day anchored to "today" to bypass the 9-day restriction
-      const latestMockTimeMs = Date.UTC(2026, now.getUTCMonth(), now.getUTCDate(), baseHour);
-
-      const observations = resampled.map((p, index) => {
-        // Step backwards from the latest time by exactly 6 hours per index
-        const offsetMultiplier = (resampled.length - 1) - index; 
-        const mockTime = new Date(latestMockTimeMs - (offsetMultiplier * sixHoursMs));
-        
-        const yr = mockTime.getUTCFullYear();
-        const mo = String(mockTime.getUTCMonth() + 1).padStart(2, '0');
-        const da = String(mockTime.getUTCDate()).padStart(2, '0');
-        const hr = String(mockTime.getUTCHours()).padStart(2, '0');
-        
-        return {
-          timestamp: `${yr}${mo}${da}${hr}`,
-          longitude: parseFloat(p.lon),
-          latitude: parseFloat(p.lat),
-          pressure: parseFloat(p.pressure), 
-          wind: parseFloat(p.wind_speed)      
-        };
-      });
-
-      console.log("[Prediction] Sending strict 6-hour payload (Recent Timeline Overwrite):", { observations });
-      setIsPredicting(true);
-
-      // 3. API Execution
-      try {
-        const response = await fetch('http://localhost:3000/api/predict', {
+        // Create the Promise and store it in the external cache
+        const fetchPromise = fetch('http://localhost:3000/api/predict', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ observations })
+        })
+        .then(async (response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return await response.json();
+        })
+        .catch(error => {
+          console.error("[Prediction] Model failed:", error.message);
+          predictionPromiseCache.delete(cacheKey); // Clear cache so it can try again later
+          return null;
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        predictionPromiseCache.set(cacheKey, fetchPromise);
+      }
 
-        const data = await response.json();
-        
-        if (data.predictions && Array.isArray(data.predictions)) {
-          const formattedPrediction = data.predictions.map(pt => [pt.latitude, pt.longitude]);
-          setPredictedPath([mapCenter, ...formattedPrediction]);
-        }
-        
-      } catch (error) {
-        console.error("[Prediction] Heavy model pipeline failed:", error.message);
-      } finally {
+      setIsPredicting(true);
+
+      // 4. Await the shared promise. 
+      // In StrictMode, Mount A creates the fetch, Mount B simply awaits Mount A's fetch!
+      const data = await predictionPromiseCache.get(cacheKey);
+
+      // Only the currently active mounted component will pass this check and render the line
+      if (isSubscribed) {
         setIsPredicting(false);
+        if (data && data.predictions && Array.isArray(data.predictions)) {
+          const currentPoint = [parseFloat(cyclone.current_lat), parseFloat(cyclone.current_lon)];
+          const formattedPrediction = data.predictions.map(pt => [pt.latitude, pt.longitude]);
+          
+          setPredictedPath([currentPoint, ...formattedPrediction]);
+          setPredictionDetails(data.predictions);
+        }
       }
     }
 
-    fetchPrediction();
-  }, [cyclone, mapCenter]); 
+    processAndFetchPrediction();
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [cyclone?.id, rawPastData.length]); 
 
   const pastOptions = { color: '#f59e0b', weight: 4, dashArray: '5, 5' }; 
   const predictedOptions = { color: '#ef4444', weight: 4, dashArray: '2, 6' };
@@ -151,6 +166,22 @@ export default function MapView({ cyclone }) {
             {predictedPath.length > 1 && (
               <Polyline pathOptions={predictedOptions} positions={predictedPath} />
             )}
+
+            {predictionDetails.map((pt, index) => (
+              <CircleMarker 
+                key={`pred-${index}`} 
+                center={[pt.latitude, pt.longitude]} 
+                radius={6} 
+                pathOptions={{ color: '#ef4444', fillColor: '#ef4444', fillOpacity: 1 }}
+              >
+                <Popup>
+                  <b>Forecast +{(index + 1) * 6}h</b><br />
+                  Time: {pt.timestamp}<br />
+                  Wind: {pt.wind_knots ? pt.wind_knots.toFixed(1) : '--'} kt<br />
+                  Pressure: {pt.pressure_hpa ? pt.pressure_hpa.toFixed(1) : '--'} hPa
+                </Popup>
+              </CircleMarker>
+            ))}
 
             <Marker position={mapCenter}>
               <Popup>

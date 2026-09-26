@@ -9,6 +9,8 @@ import fs from 'fs';
 import cors from 'cors';
 import { fetchUnifiedCycloneData } from './db_connect.js';
 
+
+
 // Define __dirname for ES Modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,7 +40,7 @@ app.use('/uploads', express.static(uploadsDir));
 // Configure Multer storage for uploaded satellite frames
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, staticImageDir);
+        cb(null, uploadsDir);
     },
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -221,11 +223,14 @@ app.get('/api/alerts/tagged-locations', async (req, res) => {
  * 6. POST /api/predict
  * Proxy endpoint to forward prediction requests to machine learning API.
  */
+
+const modelUrl = process.env.MODEL_URL;
+
 app.post('/api/predict', async (req, res) => {
     try {
-        const response = await fetch('https://cyclonepredictmodel.onrender.com/predict', {
+        const response = await fetch(modelUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.CYCLONE_API_KEY },
             body: JSON.stringify(req.body)
         });
 
