@@ -251,6 +251,6 @@ Location-based risk alert, e.g. `?lat=13.0827&lon=80.2707`.
 
 ---
 
-## 📄 License
 
-Submitted for **Smart India Hackathon (SIH) 2026** under the MIT License.
+
+Submitted for **Smart India Hackathon (SIH) 2026**.
